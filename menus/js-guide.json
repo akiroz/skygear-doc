@@ -40,16 +40,20 @@
         "url": "#basic-crud"
       },
       {
+        "title": "Data Types",
+        "url": "#data-type"
+      },
+      {
         "title": "Records Relations",
         "url": "#reference"
       },
       {
-        "title": "Data Type",
-        "url": "#data-type"
+        "title": "Auto-Incrementing Sequences",
+        "url": "#sequence"
       },
       {
-        "title": "Local Storage (Offline)",
-        "url": "/coming-soon"
+        "title": "Reserved Columns",
+        "url": "#reserved"
       }
     ]
   },
