@@ -1,335 +1,228 @@
-<a name="overview"></a>
-## Overview
+<a name="what-are-records"></a>
+## What are Records?
+In Skygear, you can store data using **Records**. They provide a reliable
+way store *structured*, *persistent* data on the backend.
 
-Please make sure you know about and have already configured your skygear
-[container](/js/guide#set-up-app) before you proceed.
+Each Skygear record is associated with a named **type** which is bound to
+an extendable data schema. In the JS SDK, records are simply JS objects.
 
-<a name="record"></a>
-### The Record Class
+All Skygear records are also assigned a unique UUID during creation for
+identification.
 
-- `Record` must have a type.
-- Each `Record` object is like a dictionary with keys and values; keys will be
-mapped to database column names, and values will be stored appropriately
-based on the data type. Please refer to [Data Type](#data-type)
-section within this guide for more information.
-- `Record` will be owned by the currently logged in user.
-- Each `Record` object has its unique `id` (combination of record type
-  and uuid used in the database as `_id`).
-- `Record` has reserved keys that cannot be used, such as `id` and `_id`.
-Please refer to [Reserved Columns](#reserved) section for more.
+<a name="record-owner"></a>
+### Record Owner
+By design, each Skygear record is associated a user for easy access control,
+this is known as the record "owner" or "creator" so you must be logged-in
+to be able to create and save records. However, if fine grained access
+control is not required, you can login as the anonymous user. 
 
-You can design different `Record` type to model your app. Just like defining
-tables in SQL.
+Refer to the [User & Authentication][] section for how to sign up / login
+or the [Access Control][] section for how you can restrict Record access.
 
-``` javascript
-const Note = skygear.Record.extend('note');
-const Blog = skygear.Record.extend('blog');
-
-const note = new Note({ 'content': 'Hello World' });
+<a name="record-object"></a>
+### Record Object
+Skygear records are JS objects, you can easily create records using
+the following 2 lines:
+```js
+// define record type "person"
+const PersonRecord = skygear.Record.extend("person");
+// create "person" record: bob
+const bob = new PersonRecord({ name: "bob", age: 20 });
 ```
+```js
+{ // bob object:
+  name: "bob"
+  age: 20
 
-### Record Database
+  // metadata provided by skygear on creation (read-only)
+  recordType: "person"
+  id: "person/45b0272b-41dc-483c-a07d-798a95cabbbd"
 
-You will be provided with a private and a public database.
-
-- Everything in the private database is truly private, regardless of what access
-control entity you set to the record. In other words, each user has his own
-private database, and only himself has access to it.
-- Record saved at public database is by default public. Even without
-logging in, records in the public database can be queried (but not updated).
-To control the access, you may set different access control to the record.
-- The database objects can be accessed with `skygear.publicDB` and
-`skygear.privateDB`.
-
-<a name="basic-crud"></a>
-## Basic CRUD
-
-### Creating a record
-
-You can save a public record to server as the following.
-
-``` javascript
-skygear.publicDB.save(new Note({
-  'content': 'Hello World!'
-})).then((record) => {
-  console.log(record);
-}, (error) => {
-  console.error(error);
-});
+  // metadata provided by skygear on save (read-only)
+  ownerID: "7888d764-a20a-4c2c-89c2-8eb02de0a079"
+  createdAt: Mon Oct 17 2016 16:49:14 GMT+0800 (HKT)
+  createdBy: "7888d764-a20a-4c2c-89c2-8eb02de0a079"
+  updatedAt: Mon Oct 17 2016 16:49:14 GMT+0800 (HKT)
+  updatedBy: "7888d764-a20a-4c2c-89c2-8eb02de0a079"
+}
 ```
+When creating Skygear records, you should avoid starting your type name with
+`_` and the fields names with either `_` or `$` as they are reserved by
+Skygear for internal usage. You should also avoid naming your fields the
+same as the metadata shown above.
 
-#### Batch save
+<a name="public-private-database"></a>
+## Public/Private Database
+Skygear provides 2 places where you could save records: a `privateDB` that
+can only be accessed by the user and a `publicDB` that's controlled by
+access rules attached to each record. By default, every record in the
+`publicDB` is readable by everyone and only writable by its creator.
 
-You can also batch save multiple records at one time.
+Refer to the [Access Control][] section for more detail.
 
-``` javascript
-skygear.publicDb.save([goodNote1, goodNote2, badNote3, goodNote4, badNote5])
-.then((result) => {
-  console.log(result.savedRecords);
-  // [goodNote1, goodNote2, undefined, goodNote4, undefined]
-  console.log(result.errors);
-  // [undefined, undefined, error3, undefined, error5]
-}, (error) => { /* request error */ })
+<a name="sql-database-backend"></a>
+### SQL Database Backend
+On the Skygear server backend, your data is stored in a PostgreSQL database.
+The record's type name is mapped to a table name while field names are mapped
+to table columns. You can view and modify skygear's data by connecting
+directly to the database.
+
+<a name="save"></a>
+## Save
+You can save skygear records using a single API call, here's how you could
+save the `bob` record:
+```js
+const PersonRecord = skygear.Record.extend("person");
+const bob = new PersonRecord({ name: "bob", age: 20 });
+const savePromise = skygear.publicDB.save(bob); // or skygear.privateDB.save()
 ```
+`savePromise` is an [A+ Promise Object][] that either returns the record
+that was successfully saved or the error when the save operation failed.
+You can find out more about errors in the [Error Handling][] guide.
 
-By default, "good" records are still saved while "bad" records are not.
-Use the `atomic` option if you don't want partial saves, so either all or none
-of the records will be saved.
+When we save the `bob` record to the server, it will help us create a table
+named `person` like the following:
 
-``` javascript
-skygear.publicDB.save([goodNote, badNote], { atomic: true });
-// neither of the notes are saved
+| _id &lt;String&gt;                   | name &lt;String&gt; | age &lt;Integer&gt; |
+|--------------------------------------|---------------------|---------------------|
+| 45b0272b-41dc-483c-a07d-798a95cabbbd | bob                 | 20                  |
+
+Data types are inferred from the first saved record of its type (e.g. `bob` is the first
+saved record of the `person` type), skygear supports most of JS' built-in types.
+You can read more about them in the [Data Types]() section.
+
+<a name="batch-save"></a>
+### Batch Save
+You can also save multiple records at the same time like so:
+
+```js
+const alice = new PersonRecord({ name: 'alice', age: 12, height: 141 });
+const frederica = new PersonRecord({ name: 'frederica', age: 19, height: 164 }); 
+const multiSavePromise = skygear.publicDB.save([alice, frederica]);
 ```
+A few things to note here:
 
-### Reading a record
+- We have just dynamically added a new field to the `person` type called `height`,
+the skygear server will help us extend the database schema automatically such that
+the table now looks something like this:
 
-You can construct a Query object by providing a Record Type.
-You can config the query by mutating its state.
-Read the section about [Query](/js/guide/query) to learn more.
+| _id &lt;String&gt;                   | name &lt;String&gt; | age &lt;Integer&gt; | height &lt;Integer&gt; |
+|--------------------------------------|---------------------|---------------------|------------------------|
+| 45b0272b-41dc-483c-a07d-798a95cabbbd | bob                 | 20                  | NULL                   |
+| b4400221-0bed-4ab2-b536-10be20a8f129 | alice               | 12                  | 141                    |
+| d0bcbb3a-c379-460a-9dba-1f46eb980df1 | frederica           | 19                  | 164                    |
 
-``` javascript
-const query = new skygear.Query(Blog);
-query.greaterThan('popular', 10);
-query.addDescending('popular');
-query.limit = 10;
-
-skygear.publicDB.query(query).then((records) => {
-  console.log(records)
-}, (error) => {
-  console.error(error);
-})
+- `multiSavePromise` either returns an object that looks like the following
+or an error if the skygear server can't be reached.
+```js
+{ // both records saved successfully
+    savedRecords: [alice, frederica],
+    errors: [null, null]
+}
 ```
-
-### Updating a record
-
-``` javascript
-const query = new skygear.Query(Note);
-query.equalTo('_id', '<your-note-_id>');
-
-skygear.publicDB.query(query)
-.then((records) => {
-  const note = records[0];
-  note['content'] = 'Hello New World';
-  return skygear.publicDB.save(note);
-}).then((record) => {
-  console.log('update success');
-}, (error) => {
-  console.error(error);
-});
-```
-
-- After saving a record, any attributes modified from the server side will
-be updated on the saved record object in place.
-- The local transient fields of the records are merged with any remote
-transient fields applied on the server side.
-- There is a shorter way for updating records, but only use it when you
-know what you are doing. (Unspecified field or column will not be changed,
-so in the case below only content field will be changed)
-
-``` javascript
-skygear.publicDB.save(new Note({
-  _id: 'note/<your-note-_id>',
-  content: 'Hello New World'
-}));
-```
-
-### Deleting a record
-
-``` javascript
-skygear.publicDB.delete({
-  id: 'note/<your-note-_id>'
-}).then((record) => {
-  console.log(record);
-}, (error) => {
-  console.error(error);
-});
-```
-
-You can also delete multiple records at one time.
-
-``` javascript
-const query = new skygear.Query(Note);
-query.lessThan('rating', 3);
-
-const foundNotes = [];
-skygear.publicDB.query(query)
-.then((notes) => {
-  console.log(`Found ${notes.length} notes, going to delete them.`);
-  foundNotes = notes;
-  return skygear.publicDB.delete(notes); // return a Promise object
-})
-.then((errors) => {
-  errors.forEach((perError, idx) => {
-    if (perError) {
-      console.error('Fail to delete', foundNotes[idx]);
-    }
-  });
-}, (reqError) => {
-  console.error('Request error', reqError);
-});
-```
-
-<a name="reference"></a>
-## Records Relations
-
-### What Skygear provide
-
-Skygear supports parent-child relation between records via _reference_.
-`skygear.Reference` is a pointer class, which will translate to foreign key in
-skygear server database for efficient query.
-
-You can even reference a user from a record. To learn more about user object or
-how to retrieve user objects, you can read the [Users](/js/guide/users) section.
-Notice that we are not using the `new` keyword creating reference. Assume you
-have the user record object `rick`.
-
-``` javascript
-const note = new Note({
-  heading: 'Working Draft',
-  content: 'People involved please fill in',
-});
-const author = new skygear.Reference(rick);
-note.author = author;
-skygear.publicDB.save(note);
-```
-
-You can build up reference between records.
-
-``` javascript
-const note1 = new Note({
-  heading: 'Specification',
-  content: 'This is first section',
-});
-const note2 = new Note({
-  heading: 'Specification page 2',
-  content: 'This is second section',
-});
-note1.nextPage = new skygear.Reference(note2);
-skygear.publicDB.save([note2, note1]);
-```
-
-- Ordering of objects in batch save array matters if there are reference
-relationship between records. In the above case, if you perform batch save on
-`[note1, note2]`, there will be an error saving `note1`, but `note2` will
-still be saved!
-- If you wish to retrieve `note1` and `note2` at the same time in one query,
-you might use `transientInclude`. Read the [Queries](/js/guide/query#relational-queries)
-section to learn more about eager loading.
-
-### Deleting Referenced Record
-
-Yet to be implemented. For now, you have to delete the referencing record
-first and then the referenced record.
-
-<a name="data-type"></a>
-## Data Type
-
-Skygear supports almost all of the builtin JavaScript types, such as:
-- String
-- Number
-- Boolean
-- Array
-- Object
-- Date
-
-There are also four other types provided by Skygear JS SDK:
-- Reference (described above)
-- Sequence (described below)
-- Geolocation (described in [Geo-location](/js/guide/geolocation) section)
-- Asset (described in [Assets (File Upload)](/js/guide/asset) section)
-
-Please refer to the [server](/server/guide/data-type) documentation for
-more detail in supported data types.
-
-### Auto-Incrementing Sequence Fields
-
-Skygear reserves the `id` field in the top level of all record as a primary key.
-`id` must be unique and default to be Version 4 UUID. If you want to
-auto-incrementing id for display purpose, Skygear provide a sequence for this 
-purpose. The sequence is guaranteed unique. Once a record with sequence id is
-saved, all the other records will automatically have sequence ids as well.
-
-``` javascript
-const note = new Note({
-  content: 'Hello World'
-});
-note.noteID = new skygear.Sequence();
-
-skygear.publicDB.save(note).then((note) => {
-  console.log(note.noteID);
-}, (error) => {
-  console.log(error);
-});
-```
-
-- You can omit the `noteID` on update, the value will remain unchanged.
-- All the other `Note` in the database will now automatically have their
-  `noteID` as well.
-- You can migrate any integer to auto-incrementing sequence.
-- Our JIT schema at development will migrate the DB schema to sequence. All
-  `noteID` at `Note` will be a sequence type once migrated.
-
-If you wish to override sequence manually, you can do that as well. If the
-provided `noteID` is taken by another record, there will be an error; otherwise,
-the record will be saved and the maximum `noteID` plus one will be used for the
-next record.
-
-``` javascript
-const note = new Note({
-  content: 'Hello World'
-});
-note.noteID = 43;
-skygear.publicDB.save(note);
-```
-
-<a name="reserved"></a>
-### Reserved Columns
-
-There are quite a few reserved columns for storing records into the database.
-The column names are written as **snake_case** while the JS object attributes
-are mapped with **camelCase**. Please notice this one-to-one mapping. When you want
-to query on reserved columns, make sure to use **snake_case**; when you get records
-back as a JS object, make sure to access attributes with **camelCase**. When
-creating and saving records, please avoid using attribute that is the same
-as any one of the camelCase attribute names listed below.
-
-Column Name | Object Attribute | Description
---- | --- | ---
-`_created_at` | `createdAt` | date object of when record is created
-`_updated_at` | `updatedAt` | date object of when record is updated last time
-`_created_by` | `createdBy` | user id of record creator
-`_updated_by` | `updatedBy` | user id of last record updater
-`_owner_id` | `ownerID` | user id of owner
-**N/A** | `id` | record type and record id
-`_id` | `_id` | record id
-
-One quick example:
-
-``` javascript
-skygear.publicDB.query(new skygear.Query(Note))
-  .then((records) => console.log(records[0]));
-```
-
-``` javascript
-/* Type: RecordCls */ {
-  createdAt: new Date("Thu Jul 07 2016 12:12:42 GMT+0800 (CST)"),
-  updatedAt: new Date("Thu Jul 07 2016 12:42:17 GMT+0800 (CST)"),
-  createdBy: "118e0217-ffda-49b4-8564-c6c9573259bb",
-  updatedBy: "118e0217-ffda-49b4-8564-c6c9573259bb",
-  ownerID: "118e0217-ffda-49b4-8564-c6c9573259bb",
-  id: "note/3b9f8f98-f993-4e1d-81c3-a451e483306b",
-  _id: "3b9f8f98-f993-4e1d-81c3-a451e483306b",
-  recordType: "note",
+In case any of the records fails to save (e.g. due to schema conflict),
+the corresponding error will be available in the `errors` array at its index:
+```js
+{ // failed to save frederica
+    savedRecords: [alice, null],
+    errors: [null, error]
 }
 ```
 
-Query on reserved columns example:
+<a name="retrieve"></a>
+## Retrieve
+You can retrieve records using **Queries**, they help you retrieve record(s)
+from the database based on logical rules.
 
-``` javascript
-let query = new skygear.Query(Note);
-query.equalTo('_owner', skygear.currentUser.id);
-// '_owner' is an alias for '_owner_id'
-skygear.publicDB.query(query);
+To create a query, you must provide a record class and optionally specify
+rules to narrow your search. Using our `PersonRecord` class from previous
+examples, we can retrieve the `bob` record from the public database like so:
+```js
+const queryPromise = skygear.publicDB.query(
+  new skygear.Query(PersonRecord)
+    .equalTo('name', 'bob')
+);
+```
+`queryPromise` is an [A+ Promise Object][] that either returns an array
+of record results or an error if the query operation failed.
+(See [Error Handling][].)
+
+We can also retrieve the `bob` record by ID using the special
+query parameter `_id`:
+```js
+const queryPromise = skygear.publicDB.query(
+  new skygear.Query(PersonRecord)
+    .equalTo('_id', '45b0272b-41dc-483c-a07d-798a95cabbbd')
+);
 ```
 
-Check the server [database schema](/server/guide/database-schema) page for more.
+More in-depth usage of the query API is covered in the [Queries][] section.
+
+<a name="update"></a>
+## Update
+In Skygear, save and update operations are the same thing. You can update
+previously saved record objects and save them again like you would in a
+text editor. Say we now know bob's height:
+```js
+bob.height = 169;
+skygear.publicDB.save(bob);
+```
+This will update our database to something like the following:
+
+| _id &lt;String&gt;                   | name &lt;String&gt; | age &lt;Integer&gt; | height &lt;Integer&gt; |
+|--------------------------------------|---------------------|---------------------|------------------------|
+| 45b0272b-41dc-483c-a07d-798a95cabbbd | bob                 | 20                  | 169                    |
+| b4400221-0bed-4ab2-b536-10be20a8f129 | alice               | 12                  | 141                    |
+| d0bcbb3a-c379-460a-9dba-1f46eb980df1 | frederica           | 19                  | 164                    |
+
+<a name="update-by-id"></a>
+### Update by ID
+Sometimes you may also want to update a record by ID,
+you can do this using the following snippet. Again, setting
+bob's height but without the record object:
+```js
+skygear.publicDB.save(
+  new PersonRecord({
+    _id: 'person/45b0272b-41dc-483c-a07d-798a95cabbbd',
+    height: 169
+  })
+);
+```
+Note: the special `_id` field is used in this case.
+
+<a name="delete"></a>
+## Delete
+The delete API works in a similar fashion to the save API, you can
+delete a record object; array of records or by ID.
+```js
+// delete previously defined record object from the database
+skygear.publicDB.delete(frederica)
+
+// delete record by ID (in this case: bob)
+skygear.publicDB.delete({
+  id: 'person/45b0272b-41dc-483c-a07d-798a95cabbbd'
+})
+```
+Note: the delete operation uses the normal `id` field without underscore.
+
+This API call returns a promise object containing the deleted record or
+array of deleted records.
+
+<a name="atomic-save-updates"></a>
+## Atomic Save/Updates
+In a multi-save/update operation, you can make it such that either all or
+none of the records will be saved if an error occurs using the `atomic`
+option. This call will behave just like a [single-item save][Save] operation:
+```js
+skygear.publicDB.save(arrayOfRecords, { atomic: true });
+```
+
+[Record Object]: #record-object
+[Save]: #save
+[Queries]: /cloud-database/js/queries
+[Data Types]: /cloud-database/js/data-types
+[Access Control]: /cloud-database/js/access-control
+[Database Schema]: /anvanced/skygear-server#database-schema
+[User & Authentication]: /user-authentication/js/basic-authentication
+[Error Handling]: /cloud-database/js/error-handling
+[A+ Promise Object]: https://github.com/promises-aplus/promises-spec
